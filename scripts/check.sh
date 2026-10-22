@@ -21,7 +21,9 @@ source "${ROOT}/licenses/third-party.conf"
 SRC="${ROOT}/src/swiftshader"
 BUILD="${ROOT}/build/${PLATFORM}"
 OUT="${ROOT}/out/${PLATFORM}"
-LIB="${OUT}/${PLATFORM_LIBRARY}"
+# Not LIB: that is MSVC's library search path, already exported, and assigning it breaks the
+# probe's link on Windows.
+DRIVER="${OUT}/${PLATFORM_LIBRARY}"
 REPORT="${ROOT}/out/${PLATFORM}.probe.txt"
 # The Windows runner's python3 can be the Microsoft Store stub, so python first.
 PY="$(command -v python || command -v python3)"
@@ -60,7 +62,7 @@ EOF
 	pass "library_path resolves to ${resolved}"
 else
 	fail "vk_swiftshader_icd.json is unusable"
-	resolved="${LIB}"
+	resolved="${DRIVER}"
 fi
 
 # The driver itself, loaded through the manifest's own path exactly as the loader would.
@@ -68,7 +70,7 @@ echo "==> driver"
 compiler="$(sed -n 's/^CMAKE_C_COMPILER:[A-Z]*=//p' "${BUILD}/CMakeCache.txt")"
 cmake -S "${ROOT}/tools" -B "${ROOT}/build/probe-${PLATFORM}" -G Ninja -DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_C_COMPILER="${compiler}" -DSWIFTSHADER_INCLUDE="${SRC}/include" "${PLATFORM_CMAKE_ARGS[@]}" \
-	--log-level=WARNING >/dev/null
+	--log-level=WARNING --no-warn-unused-cli >/dev/null
 cmake --build "${ROOT}/build/probe-${PLATFORM}" >/dev/null
 probe="${ROOT}/build/probe-${PLATFORM}/icdprobe"
 [[ -f "${probe}.exe" ]] && probe="${probe}.exe"
@@ -105,11 +107,11 @@ Darwin)
 		"@rpath/${PLATFORM_LIBRARY}") ;; # its own install name
 		*) fail "depends on ${dep}" ;;
 		esac
-	done < <(otool -L "${LIB}" | tail -n +2 | awk '{print $1}')
+	done < <(otool -L "${DRIVER}" | tail -n +2 | awk '{print $1}')
 	while IFS= read -r rpath; do
 		fail "carries an LC_RPATH of ${rpath}"
-	done < <(otool -l "${LIB}" | awk '/cmd LC_RPATH/{f=1} f&&/ path /{print $2; f=0}')
-	if codesign --verify "${LIB}" 2>/dev/null; then
+	done < <(otool -l "${DRIVER}" | awk '/cmd LC_RPATH/{f=1} f&&/ path /{print $2; f=0}')
+	if codesign --verify "${DRIVER}" 2>/dev/null; then
 		pass "code signature valid (arm64 will not load an unsigned or broken one)"
 	else
 		fail "code signature is invalid"
@@ -122,9 +124,9 @@ Linux)
 		*"=> /lib/"* | *"=> /lib64/"* | *"=> /usr/lib/"* | *"=> /usr/lib64/"*) ;;
 		*"=> /"*) fail "depends on a non-system path: ${line}" ;;
 		esac
-	done < <(ldd "${LIB}" | sed 's/^[[:space:]]*//')
-	if readelf -d "${LIB}" | grep -qE 'RPATH|RUNPATH'; then
-		fail "carries an rpath: $(readelf -d "${LIB}" | grep -E 'RPATH|RUNPATH' | sed 's/^ *//')"
+	done < <(ldd "${DRIVER}" | sed 's/^[[:space:]]*//')
+	if readelf -d "${DRIVER}" | grep -qE 'RPATH|RUNPATH'; then
+		fail "carries an rpath: $(readelf -d "${DRIVER}" | grep -E 'RPATH|RUNPATH' | sed 's/^ *//')"
 	fi
 	;;
 Windows)
@@ -139,7 +141,7 @@ Windows)
 		api-ms-win-*) ;; # an OS API set
 		*) [[ -f "${system32}/${dll}" ]] || fail "imports ${dll}, which is not a Windows system DLL" ;;
 		esac
-	done < <(dumpbin -nologo -dependents "$(cygpath -w "${LIB}")" | tr -d '\r' | awk 'NF==1 && tolower($1) ~ /\.dll$/ {print $1}')
+	done < <(dumpbin -nologo -dependents "$(cygpath -w "${DRIVER}")" | tr -d '\r' | awk 'NF==1 && tolower($1) ~ /\.dll$/ {print $1}')
 	;;
 esac
 ((failures == before)) && pass "depends on nothing outside the OS"
@@ -148,7 +150,7 @@ esac
 case "${PLATFORM_SYSTEM}" in
 Darwin)
 	echo "==> minimum macOS"
-	minos="$(otool -l "${LIB}" | awk '/cmd LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+	minos="$(otool -l "${DRIVER}" | awk '/cmd LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
 	if [[ "${minos}" == "${PLATFORM_MIN_OS}" ]]; then
 		pass "minos ${minos}"
 	else
@@ -157,8 +159,8 @@ Darwin)
 	;;
 Linux)
 	echo "==> minimum glibc"
-	glibc="$(objdump -T "${LIB}" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sed 's/^GLIBC_//' | sort -uV | tail -1)"
-	glibcxx="$(objdump -T "${LIB}" | grep -oE 'GLIBCXX_[0-9]+(\.[0-9]+)*' | sed 's/^GLIBCXX_//' | sort -uV | tail -1)"
+	glibc="$(objdump -T "${DRIVER}" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sed 's/^GLIBC_//' | sort -uV | tail -1)"
+	glibcxx="$(objdump -T "${DRIVER}" | grep -oE 'GLIBCXX_[0-9]+(\.[0-9]+)*' | sed 's/^GLIBCXX_//' | sort -uV | tail -1)"
 	if [[ "$(printf '%s\n%s\n' "${glibc}" "${PLATFORM_MAX_GLIBC}" | sort -V | tail -1)" == "${PLATFORM_MAX_GLIBC}" ]]; then
 		pass "newest symbol versions: GLIBC_${glibc}, GLIBCXX_${glibcxx:-none} (floor glibc ${PLATFORM_MAX_GLIBC})"
 	else
