@@ -1,0 +1,43 @@
+Read the worker-thread count from SWIFTSHADER_THREAD_COUNT as well as SwiftShader.ini
+
+Upstream reads ThreadCount only from a SwiftShader.ini in the process's working directory, which
+a library loading the driver cannot rely on controlling. SWIFTSHADER_THREAD_COUNT, set to 1-256,
+overrides it; any other value is ignored with a warning. 256 is marl's
+Scheduler::MaxWorkerThreads, the size of its worker array, which the ini path does not enforce.
+
+The count is read once, when the first VkDevice is created.
+
+--- a/src/System/SwiftConfig.cpp
++++ b/src/System/SwiftConfig.cpp
+@@ -20,6 +20,7 @@
+ #include "marl/scheduler.h"
+ 
+ #include <algorithm>
++#include <cstdlib>
+ 
+ namespace {
+ 
+@@ -92,6 +93,23 @@
+ 
+ 	// Processor flags.
+ 	config.threadCount = ini.getInteger<uint32_t>("Processor", "ThreadCount", 0);
++	// Modified by swiftshader-prebuilt: SWIFTSHADER_THREAD_COUNT overrides ThreadCount. A host
++	// process controls its environment, but not always its working directory, which is the only
++	// place SwiftShader.ini is read from.
++	if(const char *env = std::getenv("SWIFTSHADER_THREAD_COUNT"))
++	{
++		constexpr unsigned long maxThreadCount = 256;  // marl::Scheduler::MaxWorkerThreads, which is private
++		char *end = nullptr;
++		unsigned long count = std::strtoul(env, &end, 10);
++		if(end != env && *end == '\0' && count >= 1 && count <= maxThreadCount)
++		{
++			config.threadCount = static_cast<uint32_t>(count);
++		}
++		else
++		{
++			warn("Ignoring SWIFTSHADER_THREAD_COUNT=\"%s\": not a thread count from 1 to %lu\n", env, maxThreadCount);
++		}
++	}
+ 	config.affinityMask = ini.getInteger<uint64_t>("Processor", "AffinityMask", 0xFFFFFFFFFFFFFFFFu);
+ 	if(config.affinityMask == 0)
+ 	{

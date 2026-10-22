@@ -80,6 +80,19 @@ else
 	fail "the driver does not meet what the archive claims"
 fi
 
+# The thread cap patches/0001 adds. The README promises it of these archives, so it is held to
+# the same standard as everything else: counts two apart must start worker pools two apart.
+echo "==> SWIFTSHADER_THREAD_COUNT"
+started() { SWIFTSHADER_THREAD_COUNT="$1" "${probe}" "${resolved}" | sed -n 's/^threads started by vkCreateDevice: //p'; }
+one="$(started 1 || true)"
+three="$(started 3 || true)"
+if [[ -n "${one}" && -n "${three}" ]] && ((three - one == 2)); then
+	pass "1 starts ${one} threads, 3 starts ${three}"
+	echo "threads started with SWIFTSHADER_THREAD_COUNT=1: ${one}" >> "${REPORT}"
+else
+	fail "SWIFTSHADER_THREAD_COUNT does not size the pool: 1 started '${one}' threads, 3 started '${three}'"
+fi
+
 # Self-containment: the driver may depend on the OS and on nothing else. The build machine has
 # far more on it than a user's does, so a dependency on any of it passes here and fails there.
 echo "==> self-containment"

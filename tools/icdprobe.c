@@ -73,7 +73,8 @@ static void* exported(void* library, const char* name)
 }
 
 // Threads in this process, so the probe can report how many the driver starts. SwiftShader's
-// worker pool is the one thing about it a host process has to budget for.
+// worker pool is the one thing about it a host process has to budget for, and the thing
+// SWIFTSHADER_THREAD_COUNT controls.
 static long threadCount(void)
 {
 #if defined(_WIN32)
@@ -144,8 +145,6 @@ int main(int argc, char** argv)
 		fprintf(stderr, "usage: icdprobe <library>\n");
 		return 2;
 	}
-
-	long threadsBefore = threadCount();
 
 	void* library = openLibrary(argv[1]);
 	if(!library)
@@ -250,13 +249,15 @@ int main(int argc, char** argv)
 	deviceInfo.queueCreateInfoCount = 1;
 	deviceInfo.pQueueCreateInfos = &queueInfo;
 	VkDevice logical = VK_NULL_HANDLE;
+	// Counted around this one call, not from process start: on Windows the OS loader runs its own
+	// worker threads during LoadLibrary, which would blur the count.
+	long threadsBefore = threadCount();
 	result = vkCreateDevice(device, &deviceInfo, NULL, &logical);
 	if(result != VK_SUCCESS)
 		fail("vkCreateDevice with synchronization2 + dynamicRendering returned %d", (int)result);
-
 	long threadsAfter = threadCount();
 	if(threadsBefore >= 0 && threadsAfter >= 0)
-		printf("threads started: %ld\n", threadsAfter - threadsBefore);
+		printf("threads started by vkCreateDevice: %ld\n", threadsAfter - threadsBefore);
 
 	vkDestroyDevice(logical, NULL);
 	vkDestroyInstance(instance, NULL);

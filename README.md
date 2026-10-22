@@ -32,6 +32,7 @@ the build flags, before anything is packaged:
 | ICD manifest | parses; `library_path` is relative **and** contains a separator (the loader resolves `./lib` against the manifest, but searches the system for a bare `lib`), and resolves to the library beside it |
 | driver | [`tools/icdprobe.c`](tools/icdprobe.c) loads the library **through that manifest's path**, as the loader would, negotiates the loader–ICD interface, and requires a **CPU** device reporting **Vulkan ≥ 1.3** with **synchronization2** and **dynamicRendering**. It then creates a device with both enabled |
 | self-contained | depends on nothing outside the OS: system frameworks and `/usr/lib` (macOS), `/lib` and `/usr/lib` with no rpath (Linux), System32 DLLs and no Visual C++ runtime (Windows) |
+| thread cap | `SWIFTSHADER_THREAD_COUNT` of 1 and 3 start worker pools exactly two threads apart (see [Threads](#threads)) |
 | OS floor | `minos 11.0` (macOS), newest `GLIBC_` symbol ≤ 2.35 (Linux) |
 | licences | every `third_party/` directory on the driver's actual link step has its licence in [`licenses/third-party.conf`](licenses/third-party.conf) |
 | signature | the macOS dylib's ad-hoc code signature is valid (arm64 will not load one that is not) |
@@ -104,10 +105,14 @@ Downloads by tooling are unaffected: `curl`, `wget`, CMake's `file(DOWNLOAD)` an
 ### Threads
 
 SwiftShader runs shaders on its own worker pool, started with the first `VkDevice`: by default one
-thread per logical CPU, up to 16 (the probe's `threads started` line counts them, plus one more
-SwiftShader thread). Upstream reads a different count only from `ThreadCount` in a `SwiftShader.ini`
-in the process's **working directory**, which a library loading the driver cannot rely on
-controlling. A host with its own process-wide thread pool can therefore oversubscribe the CPU.
+thread per logical CPU, up to 16. Upstream reads a different count only from `ThreadCount` in a
+`SwiftShader.ini` in the process's **working directory**, which a library loading the driver cannot
+rely on controlling, so a host with its own process-wide thread pool would oversubscribe the CPU.
+
+These builds therefore carry one patch: **`SWIFTSHADER_THREAD_COUNT`**, set to 1–256 before the
+first `VkDevice` is created, sizes the pool, overriding the ini file. Any other value is ignored with
+a warning. The probe's `threads started by vkCreateDevice` line is the pool plus one further
+SwiftShader thread, so the manifest shows both the default and the capped count.
 
 ## Provenance
 
@@ -123,9 +128,10 @@ one — it downloads a Gerrit commit hook, and runs `git submodule update` for a
 option needs — so without it the build stays offline, and a submodule nobody meant to need fails
 loudly instead of being fetched quietly.
 
-No patches are applied. If one is ever carried it will live here as `patches/NNNN-*.patch`, be
-applied in name order, be named with its SHA256 in every manifest, and mark the file it changes as
-modified, as Apache-2.0 §4(b) asks.
+One patch is applied, [`patches/0001-thread-count-from-environment.patch`](patches/0001-thread-count-from-environment.patch)
+(see [Threads](#threads)). Patches live in `patches/`, are applied in name order, are named with
+their SHA256 in every manifest, and mark the code they change as modified, as Apache-2.0 §4(b)
+asks. Everything else is upstream exactly as committed.
 
 ## Building
 
