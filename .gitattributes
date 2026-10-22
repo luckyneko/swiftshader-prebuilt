@@ -1,0 +1,5 @@
+# LF everywhere, whatever the checkout's core.autocrlf: Git for Windows defaults it on, and a
+# patch checked out with CRLF no longer applies to upstream's LF sources.
+* text=auto eol=lf
+# Byte-exact: a patch is applied against upstream as committed.
+*.patch -text
