@@ -1,0 +1,7 @@
+src/
+build/
+out/
+stage/
+dist/
+*.log
+ci-artifacts/
