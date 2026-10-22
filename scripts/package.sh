@@ -100,18 +100,19 @@ EOF
 # Plain ownership, and no macOS metadata: bsdtar otherwise adds ._ AppleDouble entries for any
 # extended attribute, which extract as stray files beside the driver everywhere else.
 files=(vk_swiftshader_icd.json "${PLATFORM_LIBRARY}" LICENSE.txt THIRD_PARTY_LICENSES.txt MANIFEST.txt)
-archive="${DIST}/${name}.tar.gz"
+# The archive is named relative to dist/: on Windows its absolute path is D:/..., which GNU tar
+# reads as host "D" and tries to reach over rsh.
+archive="${name}.tar.gz"
+cd "${DIST}"
 rm -f "${archive}"
 if tar --version 2>/dev/null | grep -q 'GNU tar'; then
-	# --force-local: on Windows the archive path is D:/..., which GNU tar would otherwise read
-	# as host "D" and try to reach over rsh.
-	tar -C "${stage}" --owner=0 --group=0 --numeric-owner --force-local -czf "${archive}" "${files[@]}"
+	tar -C "${stage}" --owner=0 --group=0 --numeric-owner -czf "${archive}" "${files[@]}"
 else
 	COPYFILE_DISABLE=1 tar -C "${stage}" --uid 0 --gid 0 --no-xattrs --no-mac-metadata -czf "${archive}" "${files[@]}"
 fi
 
 hash="$(sha256 "${archive}")"
-echo "${hash}  ${name}.tar.gz" > "${archive}.sha256"
-echo "==> ${archive}"
+echo "${hash}  ${archive}" > "${archive}.sha256"
+echo "==> ${DIST}/${archive}"
 echo "  sha256 ${hash}"
 tar -tvzf "${archive}"
